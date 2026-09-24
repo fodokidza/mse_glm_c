@@ -56,8 +56,9 @@ char *arena_strndup(Arena *a, const char *s, size_t len);
 
 /* ----------------------------------------------------------------- StrMap
  * Open-addressing hash map: interned string -> int32 id. Used for
- * BPETokenizer.token_to_id. Keys are owned by the caller (typically an
- * Arena) — StrMap only stores pointers + lengths.
+ * WordVocab.token_to_id (mse_tokenizer.h) among others. Keys are owned
+ * by the caller (typically an Arena) — StrMap only stores pointers +
+ * lengths.
  */
 typedef struct {
     const char *key;
@@ -81,22 +82,19 @@ void    strmap_put(StrMap *m, const char *key, int32_t key_len, int32_t value);
 
 /* ----------------------------------------------------------------- PairMap
  * (int32 a, int32 b) -> { count, seq }, with soft-delete + revival
- * semantics matching CPython's Counter dict: deleting a key and later
- * re-inserting it gives it a NEW, later position in "most recently
- * (re)inserted" order. seq is a monotonically increasing counter used
- * to replicate Counter.most_common(1)'s tie-break (ties go to the
- * least-recently-(re)inserted pair, matching CPython's max() semantics
- * over dict iteration order for n=1).
+ * semantics matching CPython's Counter dict. UNUSED as of the
+ * two-stage char/word tokenizer rewrite (mse_tokenizer.h) — this
+ * existed solely to drive the old BPE merge loop's "most frequent
+ * pair" selection, and BPE has been deleted outright, not kept
+ * alongside the new tokenizer. Left in place (not deleted) purely to
+ * avoid ripping out a self-contained, independently-testable data
+ * structure with no other coupling to the rest of this rewrite; safe
+ * to delete in a future cleanup pass if nothing ends up needing it.
  *
- * KNOWN LIMITATION: this reproduces the *tie-break rule*, not bit-for-
- * bit CPython dict slot ordering — the two agree on which pair the
- * algorithm treats as "first" among equal counts as long as pair
- * identities and revival events line up, which they do here since we
- * drive PairMap through the exact same add/subtract/delete/revive
- * sequence tokenizer.c performs. Real corpora essentially never hit an
- * exact top-pair-frequency tie (same caveat the Python module itself
- * documents); this only matters for byte-for-byte reproducibility on
- * adversarial/synthetic ties.
+ * KNOWN LIMITATION (from its BPE-era design): this reproduces the
+ * tie-break *rule*, not bit-for-bit CPython dict slot ordering — see
+ * the historical BPE port's notes if this is ever revived for another
+ * purpose.
  */
 typedef struct {
     int64_t key;      /* packed (a<<32)|b, b as uint32 */

@@ -16,6 +16,7 @@
 #include "mse_ctm.h"
 #include "mse_ivm.h"
 #include "mse_inference.h"
+#include "mse_noise.h"
 
 typedef struct {
     int32_t vocab_size, edges, bridges, clustered_bridges, clusters;
@@ -24,7 +25,7 @@ typedef struct {
 } MseModelStats;
 
 typedef struct {
-    BPETokenizer        tokenizer;
+    MseTokenizer        tokenizer;
     EdgeMatrix          edges;
     BridgeMatrix        bridges;
     RelationshipMatrix  rels;
@@ -33,6 +34,13 @@ typedef struct {
     InferenceEngine open_engine;
     i32vec          open_vocab;   /* all_candidate_tokens(): everything except PAD/UNK/BOS */
     ImportanceVoteMatrix open_ctm; /* Open Mode's PRIMARY mechanism, always built alongside training */
+
+    NoiseIndex noise; int has_noise; /* V10's data source -- attached lazily, once, on the
+                                       * first Open Mode generate() call (see model.c's
+                                       * ensure_noise_layer()); dropped (has_noise=0) and
+                                       * rebuilt lazily again after any graph rebuild
+                                       * (train/train_incremental/load), so it can never
+                                       * score from a stale pre-merge structure. */
 
     ContextTriggerMatrix ctm;  int has_ctm; /* Strict Mode opt-in add-on */
     ImportanceVoteMatrix ivm;  int has_ivm; /* Strict Mode legacy opt-in tie-break */
@@ -89,11 +97,27 @@ MseTrainIncrementalResult model_train_incremental(MseModel *m, const char *corpu
 /* generate(): encodes `prompt`, runs InferenceEngine.generate() in the
  * requested mode, and decodes the result. `use_ctm`/`use_ivm` are
  * Strict-Mode-only opt-ins (matching model.py; ignored in Open Mode,
- * which always uses open_ctm as ivm.h/inference.h's IVM). Returns a
- * newly malloc'd decoded string (caller frees); *out_ids, if non-NULL,
- * receives the raw generated token ids (caller-inited i32vec). */
+ * which always uses open_ctm as ivm.h/inference.h's IVM). Open Mode
+ * calls model_ensure_noise_layer() first (see below) so V10 is live
+ * from the very first generated token. Returns a newly malloc'd
+ * decoded string (caller frees); *out_ids, if non-NULL, receives the
+ * raw generated token ids (caller-inited i32vec). */
 char *model_generate(MseModel *m, const char *prompt, int32_t max_tokens,
                       IeMode mode, int use_ctm, int use_ivm, i32vec *out_ids);
+
+/* Attaches V10's data source (noise.c's NoiseIndex, built from the
+ * model's current graphs) to m->open_ctm, building it first if
+ * m->has_noise is 0 -- mirrors model.py's _ensure_noise_layer(): lazy
+ * (nothing is built at train()/train_incremental()/load() time),
+ * idempotent (a second call is a no-op once already attached), and
+ * automatically invalidated after any graph rebuild (see
+ * model_build_graphs()/model_merge_graphs()/model_load(), all of
+ * which clear has_noise before rebuilding open_ctm) so it can never
+ * score from a stale pre-merge structure. model_generate()'s Open
+ * Mode path calls this for you; exposed publicly for a caller that
+ * wants to drive m->open_ctm directly (e.g. a future analysis tool),
+ * same reason model.py exposes the Python equivalent. */
+void model_ensure_noise_layer(MseModel *m);
 
 /* Binary persistence: `folder` gets tokenizer.tok/edges.bin/bridges.bin/
  * relationships.bin (not JSON — see mse_format.h). Rebuilds both

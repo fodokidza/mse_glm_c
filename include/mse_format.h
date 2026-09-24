@@ -25,10 +25,15 @@
 
 typedef struct {
     uint32_t magic;
-    uint32_t version;
+    uint32_t version;         /* 1 = BPE-era format (no longer written by
+                                * this build); 2 = two-stage char/word
+                                * format (current — see mse_tokenizer.h) */
     int32_t  vocab_size_target;
     int32_t  vocab_count;
-    int32_t  n_merges;
+    int32_t  n_merges;        /* vestigial: BPE-only field, always 0 in a
+                                * version-2 file. Kept (not removed) so the
+                                * header's on-disk byte layout doesn't shift
+                                * — nothing about version 2 depends on it. */
 } MseTokHeader;
 
 typedef struct {

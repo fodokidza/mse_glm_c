@@ -36,7 +36,7 @@ int main(int argc, char **argv) {
     long clen;
     char *corpus = read_file(corpus_path, &clen);
 
-    BPETokenizer tok;
+    MseTokenizer tok;
     mse_tok_init(&tok, vocab_size);
     mse_tok_train(&tok, corpus, (int32_t)clen);
 
@@ -79,14 +79,19 @@ int main(int argc, char **argv) {
     snprintf(path, sizeof(path), "%s.rels", out_prefix); rm_save(&rels, path);
 
     if (dump) {
-        printf("--- VOCAB ---\n");
-        for (int32_t i = 0; i < tok.vocab.count; i++) {
-            int32_t l; const char *s = vocab_str(&tok.vocab, i, &l);
-            printf("%d\t%.*s\n", i, l, s);
+        printf("--- CHARS ---\n");
+        for (int32_t id = TOK_FIRST_FREE; id < mse_tok_vocab_size_actual(&tok); id++) {
+            if (!cv_is_char_id(&tok.chars, id)) continue;
+            char b = (char)cv_decode_id(&tok.chars, id);
+            printf("%d\t%.*s\n", id, 1, &b);
         }
-        printf("--- MERGES ---\n");
-        for (int32_t i = 0; i < tok.n_merges; i++)
-            printf("%d\t%d\t%d\n", tok.merges[i].a, tok.merges[i].b, tok.merges[i].merged);
+        printf("--- WORDS ---\n");
+        for (int32_t id = TOK_FIRST_FREE; id < mse_tok_vocab_size_actual(&tok); id++) {
+            if (cv_is_char_id(&tok.chars, id)) continue;
+            int32_t l; const char *s = wv_decode_id(&tok.words, id, &l);
+            if (l == 0) continue;
+            printf("%d\t%.*s\n", id, l, s);
+        }
         printf("--- EDGES ---\n");
         for (int32_t i = 0; i < edges.n; i++)
             printf("%d\t%d\t%d\n", edges.src[i], edges.dst[i], edges.count[i]);

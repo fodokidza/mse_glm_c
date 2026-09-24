@@ -23,6 +23,7 @@ void model_free(MseModel *m) {
     if (m->trained) { /* engines/open_ctm only exist once a graph build has happened */
         ivm_free(&m->open_ctm);
     }
+    if (m->has_noise) { noise_index_free(&m->noise); m->has_noise = 0; }
     i32vec_free(&m->open_vocab);
     if (m->has_ctm) ctm_free(&m->ctm);
     if (m->has_ivm) ivm_free(&m->ivm);
@@ -35,6 +36,16 @@ void model_all_candidate_tokens(const MseModel *m, i32vec *out) {
 }
 
 static void rebuild_open_engine(MseModel *m) {
+    /* V10's data source is derived from the graphs about to be rebuilt
+     * below -- drop it FIRST (mirrors model.py's own ordering fix: an
+     * earlier revision invalidated noise state AFTER rebuilding the
+     * open engine, which left a freshly-rebuilt open_ctm pointing at a
+     * NoiseIndex built from the pre-merge structure for one call cycle).
+     * Lazily rebuilt again on the next model_ensure_noise_layer() call
+     * (i.e. the next Open Mode generate()), not eagerly here — nothing
+     * pays for V10 until Open Mode actually runs. */
+    if (m->has_noise) { noise_index_free(&m->noise); m->has_noise = 0; }
+
     if (m->trained) ivm_free(&m->open_ctm);
     i32vec_free(&m->open_vocab); i32vec_init(&m->open_vocab);
     model_all_candidate_tokens(m, &m->open_vocab);
@@ -160,7 +171,7 @@ void model_merge_graphs(MseModel *m, i32vec *new_seqs, int32_t n_new) {
     if (m->has_ivm) { ivm_free(&m->ivm); m->has_ivm = 0; }
 }
 
-static void encode_all_sentences(BPETokenizer *tok, const char *text, int32_t len, i32vec **out_seqs, int32_t *out_n);
+static void encode_all_sentences(MseTokenizer *tok, const char *text, int32_t len, i32vec **out_seqs, int32_t *out_n);
 
 MseTrainIncrementalResult model_train_incremental(MseModel *m, const char *corpus, int32_t len,
                                                     int extend_vocab, int32_t target_vocab_size) {
@@ -182,7 +193,7 @@ MseTrainIncrementalResult model_train_incremental(MseModel *m, const char *corpu
     return r;
 }
 
-static void encode_all_sentences(BPETokenizer *tok, const char *text, int32_t len, i32vec **out_seqs, int32_t *out_n) {
+static void encode_all_sentences(MseTokenizer *tok, const char *text, int32_t len, i32vec **out_seqs, int32_t *out_n) {
     int32_t n_sent; int32_t *lens;
     char **sents = mse_split_sentences(text, len, &lens, &n_sent);
     i32vec *seqs = (i32vec *)malloc(sizeof(i32vec) * (size_t)(n_sent ? n_sent : 1));
@@ -245,12 +256,23 @@ void model_build_importance_votes(MseModel *m) {
     m->has_ivm = 1;
 }
 
+void model_ensure_noise_layer(MseModel *m) {
+    if (m->has_noise && m->open_ctm.noise == &m->noise) return; /* already attached */
+    if (m->has_noise) { noise_index_free(&m->noise); m->has_noise = 0; }
+    noise_index_build(&m->noise, &m->rels, &m->bridges, &m->open_ctm.token_rels,
+                       mse_tok_vocab_size_actual(&m->tokenizer), NOISE_VOTE_WEIGHT);
+    m->has_noise = 1;
+    m->open_ctm.noise = &m->noise;
+    m->open_ctm.noise_weight = IVM_NOISE_WEIGHT;
+}
+
 char *model_generate(MseModel *m, const char *prompt, int32_t max_tokens,
                       IeMode mode, int use_ctm, int use_ivm, i32vec *out_ids) {
     i32vec ids; i32vec_init(&ids);
     mse_tok_encode(&m->tokenizer, prompt, (int32_t)strlen(prompt), &ids);
 
     if (mode == IE_MODE_OPEN) {
+        model_ensure_noise_layer(m); /* V10 -- see mse_model.h */
         ie_generate(&m->open_engine, &ids, max_tokens, NULL, &m->open_ctm);
     } else {
         ContextTriggerMatrix *ctm = (use_ctm && m->has_ctm) ? &m->ctm : NULL;

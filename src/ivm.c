@@ -189,6 +189,8 @@ void ivm_build(ImportanceVoteMatrix *ivm, const EdgeMatrix *edges, BridgeMatrix 
     ivm->prev_current_weight = IVM_PREV_CURRENT_WEIGHT;
     ivm->triple_weight = IVM_TRIPLE_WEIGHT;
     ivm->whole_context_weight = IVM_WHOLE_CONTEXT_WEIGHT;
+    ivm->noise = NULL;               /* attached lazily -- see mse_ivm.h */
+    ivm->noise_weight = IVM_NOISE_WEIGHT;
 
     token_rels_build(&ivm->token_rels, rels, bridges, vocab_size);
     ivm->important = (uint8_t *)malloc((size_t)vocab_size);
@@ -424,12 +426,27 @@ void ivm_score_candidates(const ImportanceVoteMatrix *ivm,
         i32vec_free(&required_all);
     }
 
+    /* V10: noise.c's anchor-independent averaged score, times how many
+     * context tokens have this candidate in their co-occurring row --
+     * raw_context[pos] IS exactly that count (V3's own raw evidence),
+     * reused rather than recomputed (mirrors ivm.py's fast path, which
+     * feeds V3's raw_context_vote straight into noise.py's
+     * weighted_counts() instead of re-walking each context token's row
+     * a second time). Contributes 0 wherever ivm->noise is NULL or the
+     * candidate can't be scored (see noise_candidate_average()). */
     for (int32_t pos = 0; pos < n_candidates; pos++) {
         double v3 = ivm->context_weight * raw_context[pos];
         double v6 = ivm->adjacency_weight * raw_adjacency[pos];
         double v5 = ivm->bigram_witness_weight * bigram_witness_vote[pos];
+        double v10 = 0.0;
+        if (ivm->noise && raw_context[pos] > 0) {
+            double avg;
+            if (noise_candidate_average(ivm->noise, candidates[pos], &avg))
+                v10 = ivm->noise_weight * avg * raw_context[pos];
+        }
         out_scores[pos] = important_vote[pos] + influence_vote[pos] + v3 + context_influence_vote[pos]
-                         + v5 + v6 + prev_current_vote[pos] + triple_vote[pos] + whole_context_vote[pos];
+                         + v5 + v6 + prev_current_vote[pos] + triple_vote[pos] + whole_context_vote[pos]
+                         + v10;
     }
 
     free(cand_pos);

@@ -1,6 +1,6 @@
 CC ?= cc
 CFLAGS ?= -std=c11 -O2 -Wall -Wextra -Iinclude -g
-SRC = src/util.c src/tokenizer.c src/graph.c src/importance.c src/ctm.c src/ivm.c src/inference.c src/interpret.c src/model.c
+SRC = src/util.c src/tokenizer.c src/graph.c src/importance.c src/ctm.c src/noise.c src/ivm.c src/inference.c src/interpret.c src/model.c
 OBJ = $(SRC:.c=.o)
 
 .PHONY: all clean test

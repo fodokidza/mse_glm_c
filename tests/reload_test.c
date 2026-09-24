@@ -6,7 +6,7 @@
 
 int main(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
-    BPETokenizer tok;
+    MseTokenizer tok;
     printf("loading tok...\n");
     if (mse_tok_load(&tok, "/tmp/mse_model2.tok") != 0) { printf("load tok FAIL\n"); return 1; }
     printf("loaded tok\n");
@@ -18,7 +18,7 @@ int main(void) {
     printf("loaded rels\n");
 
     printf("vocab_size=%d\n", mse_tok_vocab_size_actual(&tok));
-    printf("n_merges=%d\n", tok.n_merges);
+    printf("chars=%d word_id_span=%d\n", tok.chars.max_id - TOK_WORD_BOUND, tok.words.count);
     printf("edges=%d bridges=%d rels=%d rows=%d\n", e.n, b.n, r.n_rels, r.n_rows);
 
     /* re-encode/decode a sentence through the reloaded tokenizer */

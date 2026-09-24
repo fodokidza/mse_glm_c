@@ -135,12 +135,12 @@ int main(int argc, char **argv) {
     }
     if (!quiet) printf("\n");
 
-    BPETokenizer tok;
+    MseTokenizer tok;
     mse_tok_init(&tok, vocab_size);
     mse_tok_train_from_wordfreq(&tok, wf);
     mse_wordfreq_free(wf);
-    if (!quiet) printf("  vocabulary: %d tokens (%d merges)  %.2fs\n\n",
-                        mse_tok_vocab_size_actual(&tok), tok.n_merges, now_sec() - t0);
+    if (!quiet) printf("  vocabulary: %d tokens (%d characters, word-id span %d)  %.2fs\n\n",
+                        mse_tok_vocab_size_actual(&tok), tok.chars.max_id - TOK_WORD_BOUND, tok.words.count, now_sec() - t0);
 
     /* ---- Pass 2: graph, in batches, reusing incremental-training merge ---- */
     if (!quiet) printf("  Pass 2/2  building graph in batches of %d file(s)...\n", batch_size);

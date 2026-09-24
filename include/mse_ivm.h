@@ -1,4 +1,4 @@
-/* mse_ivm.h — C port of ivm.py: the 9-layer (V1-V9) Open Mode scoring
+/* mse_ivm.h — C port of ivm.py: the 10-layer (V1-V10) Open Mode scoring
  * engine, plus the legacy resolve_tie() used by Strict Mode's optional
  * importance_votes add-on.
  *
@@ -29,7 +29,7 @@
  *     produces "identical numeric output" to the live path — it is
  *     deferred to a later pass; this port's ivm_score_candidates() IS
  *     the (semantically authoritative) live path.
- *   - The full audit trace (9 separate per-layer dicts, "knows",
+ *   - The full audit trace (10 separate per-layer dicts, "knows",
  *     "influence", "important_tokens") is deferred too — only the
  *     final per-candidate scores (what select() actually decides on)
  *     are computed. Every vote layer's *arithmetic* is still ported
@@ -42,6 +42,7 @@
 #include "mse_graph.h"
 #include "mse_ctm.h"
 #include "mse_util.h"
+#include "mse_noise.h"
 
 typedef struct {
     int32_t *offsets;      /* size vocab_size+1 */
@@ -70,6 +71,16 @@ typedef struct {
     double important_weight, influence_weight, context_weight, context_influence_weight,
            bigram_witness_weight, adjacency_weight, prev_current_weight, triple_weight,
            whole_context_weight;
+
+    /* V10's data source -- NULL (contributes 0, not an error) until
+     * something attaches it. model.c's ensure_noise_layer() does this
+     * automatically on the first Open Mode generate() call; a bare
+     * ImportanceVoteMatrix built directly (e.g. by a test tool) stays
+     * at 0 for V10 unless the caller attaches one itself, same "None
+     * means zero" contract as every other opt-in layer here. Not
+     * owned — ivm_free() does not free it. */
+    NoiseIndex *noise;
+    double      noise_weight;
 } ImportanceVoteMatrix;
 
 /* current/previous use -1 as the "None" sentinel throughout (valid
@@ -88,9 +99,10 @@ int32_t ivm_resolve_tie(const ImportanceVoteMatrix *ivm,
                          const int32_t *candidates, int32_t n_candidates,
                          const int32_t *context_tokens, int32_t n_context);
 
-/* Primary Open Mode scoring: writes each candidate's V1..V9 summed
+/* Primary Open Mode scoring: writes each candidate's V1..V10 summed
  * score into out_scores (caller-allocated, size n_candidates, parallel
- * to `candidates`). */
+ * to `candidates`). V10 contributes 0 unless ivm->noise has been
+ * attached (see the struct field's comment). */
 void ivm_score_candidates(const ImportanceVoteMatrix *ivm,
                            const int32_t *candidates, int32_t n_candidates,
                            const int32_t *context_tokens, int32_t n_context,
